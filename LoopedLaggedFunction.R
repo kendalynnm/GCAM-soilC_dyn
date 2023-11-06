@@ -4,12 +4,13 @@ library(tidyr)
 library(ggplot2)
 library(gcamdata)
 
-#GCAM conservation agriculture values
-CA <- read.csv("soc.csv")
+#input files from Weber et. al. in prep
+#GCAM conservation agriculture values 
+CA <- read.csv("inputs/soc.csv")
 #GCAM conventional values
-Conventional <- read.csv("soc_C_F.csv")
+Conventional <- read.csv("inputs/soc_C_F.csv")
 #Detailed land_allocation from GCAM output
-allocation <- read.csv("detailed_land_allocation.csv")
+allocation <- read.csv("inputs/detailed_land_allocation.csv")
 
 
 #get conservation agriculture soil carbon density and soil time scale values
@@ -20,14 +21,21 @@ CA %>%
   group_by(Crop, Basin, Water, Fert, Till, Cove)-> wide_CA
 
 #get conventional/fallow soil carbon density and soil time scale values
+#first filter to USA agricultural land leafs used in study
 Conventional %>%
+  filter(region == "USA",
+         grepl("CornC4", LandLeaf) |
+           grepl("FiberCrop", LandLeaf) |
+           grepl("OtherGrainC4", LandLeaf) |
+           grepl("Soy", LandLeaf) |
+           grepl("Wheat", LandLeaf)) %>%
   select(LandLeaf, soil.carbon.density) %>%
   separate(LandLeaf,into = c("Crop", "Basin", "Water", "Fert")) %>%
-  mutate(soilTimeScale = 50, #previously, all US landleaves had STS of 50
-         Till = "C", #core GCAM does not have tilalge or cover crops
+  mutate(soilTimeScale = 50, # in core GCAM all US landleaves had STS of 50
+         Till = "C", #core GCAM does not have tillage or cover crops
          Cove = "F") -> wide_conv
 
-#filter to USA agricultural land leafs used in study
+#same for allocation, filter to USA agricultural land leafs used in study
 allocation %>%
   filter(region == "USA",
          grepl("CornC4", landleaf) |
@@ -41,10 +49,20 @@ allocation %>%
 
 us_ag_alloc %>%
   group_by(Basin, Crop) %>%
-  filter(scenario == "Reference",
-         Till == "N",
-         Cove == "F",
-         year == 1975) -> base_year_alloc
+  filter(year == 1975) %>%
+  select(-scenario, -Units, -region) -> base_year_alloc
+
+#baseline soil carbon density
+#from current inputs it appears
+#that every river basin has the same SCD
+#for all crops and technologies
+
+ wide_conv %>%
+  select("Crop", "Basin", "soil.carbon.density") %>%
+  inner_join(base_year_alloc, by = c("Crop", "Basin"),
+            relationship = "many-to-many") -> check
+ #why does this have more rows than base_year_alloc????
+
 ###TO DO
 #set baseline carbon density for each basin/crop
 #figure out how to deal with decreasing allocation???
