@@ -44,13 +44,21 @@ allocation %>%
          grepl("Soy", landleaf) |
          grepl("Wheat", landleaf)) %>%
   separate(landleaf,into = c("Crop", "Basin", "Water", "Fert", "Till", "Cove")) %>%
-  mutate(Till = ifelse(is.na(Till), "N", Till),
+  mutate(Till = ifelse(is.na(Till), "C", Till),
          Cove = ifelse(is.na(Cove), "F", Cove)) -> us_ag_alloc
 
 us_ag_alloc %>%
   group_by(Basin, Crop) %>%
   filter(year == 1975) %>%
-  select(-scenario, -Units, -region) -> base_year_alloc
+  select(-Units, -region) %>%
+  relocate(Basin, Crop, Water, Fert, Till, Cove, value, year, scenario) %>%
+  arrange(value)-> base_year_alloc
+
+
+
+base_year_alloc %>%
+  group_by(Basin, Crop, Water, Fert, Till, Cove) %>%
+  summarize(n())-> thingy
 
 #baseline soil carbon density
 #from current inputs it appears
@@ -59,12 +67,11 @@ us_ag_alloc %>%
 
  wide_conv %>%
   select("Crop", "Basin", "soil.carbon.density") %>%
-  inner_join(base_year_alloc, by = c("Crop", "Basin"),
-            relationship = "many-to-many") -> check
- #why does this have more rows than base_year_alloc????
+  distinct() %>%
+  left_join(base_year_alloc, by = c("Crop", "Basin")) -> base_year_alloc_soilC
+ 
 
 ###TO DO
-#set baseline carbon density for each basin/crop
 #figure out how to deal with decreasing allocation???
 #perhaps mapping the trends for each crop in each basin
 #might be possible just to sum across all????
