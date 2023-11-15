@@ -35,6 +35,9 @@ Conventional %>%
          Till = "C", #core GCAM does not have tillage or cover crops
          Cove = "F") -> wide_conv
 
+#combine to create one dataframe with all soil C density and soil timescale data
+soil_data <- bind_rows(wide_conv, wide_CA)
+
 #same for allocation, filter to USA agricultural land leafs used in study
 allocation %>%
   filter(region == "USA",
@@ -47,6 +50,7 @@ allocation %>%
   mutate(Till = ifelse(is.na(Till), "C", Till),
          Cove = ifelse(is.na(Cove), "F", Cove)) -> us_ag_alloc
 
+#find base year (1975) land allocation for all scenarios
 us_ag_alloc %>%
   group_by(Basin, Crop) %>%
   filter(year == 1975) %>%
@@ -55,39 +59,47 @@ us_ag_alloc %>%
   arrange(value)-> base_year_alloc
 
 
+#find base year soil carbon density for all scenarios
 
-base_year_alloc %>%
-  group_by(Basin, Crop, Water, Fert, Till, Cove) %>%
-  summarize(n())-> thingy
-
-#baseline soil carbon density
 #from current inputs it appears
 #that every river basin has the same SCD
 #for all crops and technologies
-
  wide_conv %>%
   select("Crop", "Basin", "soil.carbon.density") %>%
   distinct() %>%
   left_join(base_year_alloc, by = c("Crop", "Basin")) -> base_year_alloc_soilC
  
+ us_ag_alloc %>%
+   left_join(soil_data) %>%
+   mutate(thous_sq_km = value) %>%
+   select(-c(Units, value)) %>%
+   group_by(scenario, Basin, Water, Fert, Till, Cove)-> combined_data
+ 
+chunks <- split(combined_data,
+                f = list(combined_data$scenario,
+                         combined_data$Basin,
+                         combined_data$Crop,
+                         combined_data$Water,
+                         combined_data$Fert,
+                         combined_data$Till,
+                         combined_data$Cove))
 
-###TO DO
-#figure out how to deal with decreasing allocation???
+# TO DO
+#figure out how to deal with decreasing allocation
+ 
 #perhaps mapping the trends for each crop in each basin
 #might be possible just to sum across all????
-#then combine into a big dataframe and split into many small
-#feed this to the function
 
+ 
+#select example
+combined_data %>%
+    filter(Basin == "TennR",
+           Crop == "Soybean") -> examples
 
-
-
-#select small example, one scenario, only No-Till
-MissCornAlloc %>%
-  group_by(scenario, Till) %>%
-  left_join(soc1_MissCorn) %>%
-  left_join(soc2_MissCorn) %>%
-  filter(scenario == "Carbon_cropland",
-         Till == "N") -> example
+examples %>%
+  filter(scenario == "Reference",
+         Water == "RFD",
+         Fert == "lo") -> TennR_RFD_lo
 
 #give the function a dataframe
 #with unique scenario, basin, crop, technology 
@@ -96,12 +108,6 @@ MissCornAlloc %>%
 #lapply(list, conversion_dynamics)
 #receive a list of dataframes generated split()
 #split() a base R function that works like group_by()
-
-# conversion_dynamics(soiltimescale = soiltimescale,
-#                     soilcarbondensity = soilcarbondensity,
-#                     allocation = value,
-#                     year = year
-#                    )
 
 #this function creates a dataframe
 #with the yearly change in soil carbon density
@@ -126,10 +132,11 @@ leaf_df <- bind_cols(alloc_lag = alloc_lag,
 leaf_df <- na.omit(leaf_df)
 
 #add groups for stacked plot
-#convert_land groups are new increments of added acres under that land management
+#convert_land groups are new increments of added thousands of square kilometers
+#under that land management
 leaf_df$convert_land <- "NA"
-N <- length(leaf_df$convert_land[leaf_df$alloc_diff > 0])
-leaf_df$convert_land[leaf_df$alloc_diff > 0] <- LETTERS[1:N]
+N <- length(leaf_df$convert_land[leaf_df$alloc_diff != 0])
+leaf_df$convert_land[leaf_df$alloc_diff != 0] <- LETTERS[1:N]
 
 #sigmoid dataframe with soil time scale of 66 years
 #and carbon density of 10.06
@@ -157,27 +164,61 @@ accum_data %>%
   group_by(convert_land) %>%
   complete(nesting(alloc_diff),
            abs_year = max(abs_year):2100, 
-           fill = list(y = soilcarbondensity[1])) -> soilC_dyn
+           fill = list(y = soilcarbondensity[1])) -> accum_dyn
 
-return(data.frame(soilC_dyn))
+# accum_dyn %>%
+# mutate(soil_C = y*alloc_diff) %>%
+#   select(abs_year, soil_C, convert_land) %>%
+#   pivot_wider(values_from = soil_C, names_from = convert_land) -> soilC_dyn
 
-#outputs:
-#dataframe with abs_year (x+year_lag)
-#soil carbon density by year (y)
-#land allocation (alloc_diff) for grouping var
-#grouping var(convert_land)
+return(data.frame(accum_dyn))
+# 
+# if (transmute == TRUE) {
+#   
+#   soilC_dyn %>%
+#     transmute(abs_year,
+#               change_c = rowSums(select(., -abs_year),
+#                                  na.rm = TRUE)) -> transmuted_data
+#   return(data.frame(transmuated_data))
+#   #outputs:
+#   #dataframe with abs_year and 
+#   #sum of soil C (change_c) across all land conversion chunks
+#   
+# }
+# 
+# else {
+# return(data.frame(soilC_dyn))
+#   
+#   #outputs:
+#   #dataframe with abs_year (x+year_lag)
+#   #soil carbon density by year (y)
+#   #land allocation (alloc_diff) for grouping var
+#   #grouping var(convert_land)
+#   
+# }
+
 
 #end of function
 }  
 
-soilC_dyn <- conversion_dynamics(soiltimescale = example$soilTimeScale,
-                    soilcarbondensity = example$soil.carbon.density,
-                    allocation = example$value,
-                    year = example$year)
+# 
+# lapply(chunks, FUN = conversion_dynamics(soiltimescale = soilTimeScale,
+#                                          soilcarbondensity = soil.carbon.density))
+
+
+TennR_RFD_lo_out <- conversion_dynamics(soiltimescale = TennR_RFD_lo$soilTimeScale,
+                                    soilcarbondensity = TennR_RFD_lo$soil.carbon.density,
+                                    allocation = TennR_RFD_lo$thous_sq_km,
+                                    year = TennR_RFD_lo$year)
+
+
 
 #plot dynamics over time
-ggplot(soilC_dyn,
+ggplot(TennR_RFD_lo_out,
        aes(x=abs_year, y=y*alloc_diff,
            fill=forcats::fct_rev(convert_land))) +
-  geom_area()
+    geom_area() + ggtitle("TennR Soybean Reference Conventional RFD-lo")
 
+ggplot(test2,
+       aes(x=abs_year, y=change_c)) +
+  geom_area()
